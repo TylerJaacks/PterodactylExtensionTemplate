@@ -1,0 +1,36 @@
+#!/bin/sh
+# Dev stack helper for macOS, Linux and WSL (Windows: ptx.cmd). up/down/logs drive Docker Compose;
+# anything else runs `ptx <command>` in the Panel container. `./ptx help` lists those commands.
+#   ./ptx up           build the image (first run) and start; re-run after changing .env
+#   ./ptx down [-v]    stop the stack; -v also deletes the database and Panel state
+#   ./ptx logs [svc]   follow the panel, queue and scheduler logs
+set -eu
+cd "$(dirname "$0")"
+
+case ${1:-help} in
+  up)
+    [ -f .env ] || cp .env.example .env
+    grep -q '^DEV_UID=' .env || printf 'DEV_UID=%s\nDEV_GID=%s\n' "$(id -u)" "$(id -g)" >> .env
+    if ! docker compose up -d --build; then
+      docker compose logs --no-log-prefix --tail=40 setup
+      exit 1
+    fi
+    docker compose logs --no-log-prefix --tail=1 setup
+    ;;
+  down)
+    shift
+    docker compose down "$@"
+    ;;
+  logs)
+    shift
+    [ $# -gt 0 ] || set -- panel queue scheduler
+    docker compose logs -f --tail=100 "$@"
+    ;;
+  *)
+    # No TTY when piped or in CI.
+    tty=
+    [ -t 0 ] && [ -t 1 ] || tty=-T
+    # shellcheck disable=SC2086
+    exec docker compose exec $tty panel ptx "$@"
+    ;;
+esac
